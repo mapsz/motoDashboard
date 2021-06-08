@@ -2,12 +2,12 @@
 #include <OneWire.h>
 #include <DallasTemperature.h>
 #include <FreqCount.h>
-#include <TinyGPS.h>
+#include <TinyGPS++.h>
 
 
 //Pins
 #define displayTx 8
-#define gpsRx 3
+#define gpsRx 4
 #define termPower 9
 #define termData 10
 #define fuelPower A1
@@ -95,14 +95,14 @@ class Display{
 Display display;
 
 //GPS
-TinyGPS tynyGps;
-SoftwareSerial gpsSerial(false, gpsRx);
-class GPS(){
+TinyGPSPlus tynyGps;
+SoftwareSerial gpsSerial(gpsRx, false);
+class GPS{
 
   private:
     int speed;
     unsigned long last_update;
-    int update_time = 250;
+    int update_time = 500;
 
 
 
@@ -110,17 +110,50 @@ class GPS(){
     void update(){
 
 
-      if(millis() - this->last_update) < this->update_time){
-
+      if((millis() - this->last_update) < this->update_time){
+        return;
       }
+
+      while (gpsSerial.available() > 0)
+        tynyGps.encode(gpsSerial.read());
+
+      Serial.print("chars - ");
+      Serial.println(tynyGps.charsProcessed());
+      Serial.print("fails - ");
+      Serial.println(tynyGps.failedChecksum());
+      Serial.print("sentences - ");
+      Serial.println(tynyGps.sentencesWithFix());
+      Serial.print("satelites - ");
+      Serial.println(tynyGps.satellites.value());
+
+      if(tynyGps.satellites.value() == 0){
+        this->speed = -1;
+        this->last_update = millis();
+        return;
+      }
+
+      if(tynyGps.satellites.value() < 5){
+        this->speed = tynyGps.satellites.value();
+        this->last_update = millis();
+        return;
+      }
+
+      if(tynyGps.speed.kmph() > 10){
+        this->speed = (int) tynyGps.speed.kmph();
+        this->last_update = millis();
+        return;
+      }
+
 
 
       this->last_update = millis();
 
     }
 
-
-}
+    int getSpeed(){
+      return this->speed;
+    }
+};
 GPS gps;
 
 //Temperature
@@ -302,6 +335,7 @@ void setup() {
   //Serial start
   Serial.begin(9600);  
   FreqCount.begin(1000);
+  gpsSerial.begin(9600);
 
 }
 
@@ -329,21 +363,13 @@ void loop() {
     }
   }
 
-  {//GPS    
-    float flat, flon;
-    unsigned long age;
-    gps.f_get_position(&flat, &flon, &age);
-    display.setSpeed(gps.f_speed_kmph());
-    unsigned long chars;
-    unsigned short sentences, failed;
-    gps.stats(&chars, &sentences, &failed);
-    Serial.println("GPS:");
-    Serial.print("chars - ");
-    Serial.println(chars);
-    Serial.print("sentences - ");    
-    Serial.println(sentences);
-    Serial.print("failed - ");    
-    Serial.println(failed);
+  {//GPS
+
+
+    //update
+    gps.update();
+    //Display    
+    display.setSpeed(gps.getSpeed());
 
   }
 
